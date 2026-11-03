@@ -80,9 +80,15 @@ func load(dir string) (*evaluator, error) {
 	var diags hcl.Diagnostics
 	found := false
 	for _, path := range paths {
+		base := filepath.Base(path)
 		// Terraform ignores hidden files, which is where editors keep drafts.
-		if strings.HasPrefix(filepath.Base(path), ".") {
+		if strings.HasPrefix(base, ".") {
 			continue
+		}
+		// Override files replace parts of other blocks. Reading past them would
+		// return values Terraform does not use, so refuse instead.
+		if base == "override.tf" || strings.HasSuffix(base, "_override.tf") {
+			return nil, fmt.Errorf("override files are not supported: %s", path)
 		}
 		found = true
 
@@ -264,7 +270,7 @@ func (e *evaluator) forEachInstances(expr hcl.Expression, body *hclsyntax.Body) 
 	}
 	ty := v.Type()
 	iterable := ty.IsMapType() || ty.IsObjectType() || ty.Equals(cty.Set(cty.String))
-	if !iterable || !v.IsKnown() || v.IsNull() {
+	if !iterable || !v.IsKnown() || v.IsNull() || hasIndefiniteElements(v) {
 		return cty.DynamicVal, nil
 	}
 
@@ -279,6 +285,12 @@ func (e *evaluator) forEachInstances(expr hcl.Expression, body *hclsyntax.Body) 
 		}
 	}
 	return cty.ObjectVal(instances), nil
+}
+
+// hasIndefiniteElements reports a set with an unknown element. Its keys are not
+// known, and neither is its length, since the unknown may equal another element.
+func hasIndefiniteElements(v cty.Value) bool {
+	return v.Type().IsSetType() && !v.IsWhollyKnown()
 }
 
 type element struct{ key, value cty.Value }
@@ -371,7 +383,7 @@ func (e *evaluator) expandDynamic(block *hclsyntax.Block, ctx *hcl.EvalContext) 
 	if err != nil {
 		return nil, false, err
 	}
-	if !v.IsKnown() || v.IsNull() || !v.CanIterateElements() {
+	if !v.IsKnown() || v.IsNull() || !v.CanIterateElements() || hasIndefiniteElements(v) {
 		return nil, false, nil
 	}
 
@@ -539,10 +551,25 @@ func reachesSetArgument(v cty.Value, steps hcl.Traversal) bool {
 	return true
 }
 
+// hideInfinity makes an infinite number unknown. It cannot be written to state,
+// so one such value would otherwise fail the whole data source.
+func hideInfinity(v cty.Value) cty.Value {
+	out, err := cty.Transform(v, func(_ cty.Path, v cty.Value) (cty.Value, error) {
+		if v.Type() == cty.Number && v.IsKnown() && !v.IsNull() && v.AsBigFloat().IsInf() {
+			return cty.UnknownVal(cty.Number), nil
+		}
+		return v, nil
+	})
+	if err != nil {
+		return cty.DynamicVal
+	}
+	return out
+}
+
 func exportObject(vals map[string]cty.Value) cty.Value {
 	out := map[string]cty.Value{}
 	for name, v := range vals {
-		if exported, ok := export(v); ok {
+		if exported, ok := export(hideInfinity(v)); ok {
 			out[name] = exported
 		}
 	}

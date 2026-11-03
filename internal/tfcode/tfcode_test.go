@@ -218,6 +218,16 @@ resource "aws_security_group" "web" {
 
 func TestFunctions(t *testing.T) {
 	tests := map[string]cty.Value{
+		`log(0, 2)`:                     cty.NilVal,
+		`anytrue([null])`:               cty.False,
+		`alltrue([null, true])`:         cty.False,
+		`length({ a = 1 })`:             cty.NumberIntVal(1),
+		`sum([])`:                       cty.NilVal,
+		`coalesce("", "b")`:             cty.StringVal("b"),
+		`coalesce(null, 1)`:             cty.NumberIntVal(1),
+		`coalesce("", "")`:              cty.NilVal,
+		`index(["a", "b"], "b")`:        cty.NumberIntVal(1),
+		`index(["a"], "z")`:             cty.NilVal,
 		`replace("abc", "/[ab]/", "x")`: cty.StringVal("xxc"),
 		`replace("a.b", ".", "-")`:      cty.StringVal("a-b"),
 		`startswith("abc", "a")`:        cty.True,
@@ -292,4 +302,39 @@ func TestErrors(t *testing.T) {
 
 	_, err := tfcode.Read(t.TempDir())
 	assert.ErrorContains(t, err, "no .tf files")
+
+	for _, name := range []string{"override.tf", "dev_override.tf"} {
+		_, err = tfcode.Read(write(t, map[string]string{"main.tf": `locals { a = 1 }`, name: `locals { a = 2 }`}))
+		assert.ErrorContains(t, err, "override files are not supported")
+	}
+}
+
+func TestInfinityInsideValues(t *testing.T) {
+	v := read(t, `locals { o = { a = "x", b = log(0, 2) } }`)
+	o := attrs(v.Locals)["o"]
+	assert.Equal(t, cty.StringVal("x"), o.GetAttr("a"))
+	assert.False(t, o.Type().HasAttribute("b"))
+}
+
+func TestSetWithUnknownElement(t *testing.T) {
+	v := read(t, `
+locals { a = var.x }
+resource "null_resource" "r" {
+  for_each = toset([local.a, "b"])
+  name     = each.key
+}
+resource "null_resource" "known" {
+  name = "kept"
+  dynamic "rule" {
+    for_each = toset([local.a, "b"])
+    content {
+      name = rule.key
+    }
+  }
+}
+`)
+	resources := v.Resource.GetAttr("null_resource")
+	assert.False(t, resources.Type().HasAttribute("r"))
+	assert.Equal(t, cty.StringVal("kept"), resources.GetAttr("known").GetAttr("name"))
+	assert.False(t, resources.GetAttr("known").Type().HasAttribute("rule"))
 }

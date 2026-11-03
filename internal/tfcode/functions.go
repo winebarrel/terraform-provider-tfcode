@@ -7,6 +7,7 @@ import (
 	"crypto/sha512"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"net/url"
 	"regexp"
 	"strings"
@@ -34,7 +35,7 @@ func functions() map[string]function.Function {
 		"ceil":            stdlib.CeilFunc,
 		"chomp":           stdlib.ChompFunc,
 		"chunklist":       stdlib.ChunklistFunc,
-		"coalesce":        stdlib.CoalesceFunc,
+		"coalesce":        coalesceFunc,
 		"coalescelist":    stdlib.CoalesceListFunc,
 		"compact":         stdlib.CompactFunc,
 		"concat":          stdlib.ConcatFunc,
@@ -49,7 +50,7 @@ func functions() map[string]function.Function {
 		"formatdate":      stdlib.FormatDateFunc,
 		"formatlist":      stdlib.FormatListFunc,
 		"indent":          stdlib.IndentFunc,
-		"index":           stdlib.IndexFunc,
+		"index":           indexFunc,
 		"join":            stdlib.JoinFunc,
 		"jsondecode":      stdlib.JSONDecodeFunc,
 		"jsonencode":      stdlib.JSONEncodeFunc,
@@ -153,13 +154,17 @@ var identityFunc = function.New(&function.Spec{
 	Impl:   func(args []cty.Value, _ cty.Type) (cty.Value, error) { return args[0], nil },
 })
 
-// lengthFunc also accepts a string, as Terraform's does.
+// lengthFunc also accepts a string or an object, as Terraform's does.
 var lengthFunc = function.New(&function.Spec{
 	Params: []function.Parameter{{Name: "value", Type: cty.DynamicPseudoType}},
 	Type:   function.StaticReturnType(cty.Number),
 	Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
-		if args[0].Type() == cty.String {
+		ty := args[0].Type()
+		switch {
+		case ty == cty.String:
 			return stdlib.Strlen(args[0])
+		case ty.IsObjectType():
+			return cty.NumberIntVal(int64(len(ty.AttributeTypes()))), nil
 		}
 		return stdlib.Length(args[0])
 	},
@@ -186,29 +191,45 @@ var replaceFunc = function.New(&function.Spec{
 	},
 })
 
-var allTrueFunc = boolFoldFunc(true)
-var anyTrueFunc = boolFoldFunc(false)
-
-// boolFoldFunc implements alltrue (all true) and anytrue (all false). The first
-// unknown element makes the result unknown, even if a later one would settle it.
-func boolFoldFunc(all bool) function.Function {
-	return function.New(&function.Spec{
-		Params: []function.Parameter{{Name: "list", Type: cty.List(cty.Bool)}},
-		Type:   function.StaticReturnType(cty.Bool),
-		Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
-			for it := args[0].ElementIterator(); it.Next(); {
-				_, v := it.Element()
-				if !v.IsKnown() {
-					return cty.UnknownVal(cty.Bool), nil
-				}
-				if v.IsNull() || v.True() != all {
-					return cty.BoolVal(!all), nil
-				}
+// allTrueFunc treats null as false. An unknown element leaves the result unknown
+// unless a false element settles it.
+var allTrueFunc = function.New(&function.Spec{
+	Params: []function.Parameter{{Name: "list", Type: cty.List(cty.Bool)}},
+	Type:   function.StaticReturnType(cty.Bool),
+	Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
+		result := cty.True
+		for it := args[0].ElementIterator(); it.Next(); {
+			_, v := it.Element()
+			switch {
+			case !v.IsKnown():
+				result = cty.UnknownVal(cty.Bool)
+			case v.IsNull() || v.False():
+				return cty.False, nil
 			}
-			return cty.BoolVal(all), nil
-		},
-	})
-}
+		}
+		return result, nil
+	},
+})
+
+// anyTrueFunc ignores null. An unknown element leaves the result unknown unless
+// a true element settles it.
+var anyTrueFunc = function.New(&function.Spec{
+	Params: []function.Parameter{{Name: "list", Type: cty.List(cty.Bool)}},
+	Type:   function.StaticReturnType(cty.Bool),
+	Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
+		result := cty.False
+		for it := args[0].ElementIterator(); it.Next(); {
+			_, v := it.Element()
+			switch {
+			case !v.IsKnown():
+				result = cty.UnknownVal(cty.Bool)
+			case !v.IsNull() && v.True():
+				return cty.True, nil
+			}
+		}
+		return result, nil
+	},
+})
 
 var oneFunc = function.New(&function.Spec{
 	Params: []function.Parameter{{Name: "list", Type: cty.DynamicPseudoType}},
@@ -232,6 +253,9 @@ var sumFunc = function.New(&function.Spec{
 	Params: []function.Parameter{{Name: "list", Type: cty.List(cty.Number)}},
 	Type:   function.StaticReturnType(cty.Number),
 	Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
+		if args[0].LengthInt() == 0 {
+			return cty.NilVal, function.NewArgErrorf(0, "cannot sum an empty list")
+		}
 		total := cty.Zero
 		for it := args[0].ElementIterator(); it.Next(); {
 			_, v := it.Element()
@@ -241,5 +265,74 @@ var sumFunc = function.New(&function.Spec{
 			total = total.Add(v)
 		}
 		return total, nil
+	},
+})
+
+// coalesceFunc also skips empty strings, as Terraform's does. The go-cty one
+// skips only nulls.
+var coalesceFunc = function.New(&function.Spec{
+	VarParam: &function.Parameter{
+		Name:             "vals",
+		Type:             cty.DynamicPseudoType,
+		AllowUnknown:     true,
+		AllowDynamicType: true,
+		AllowNull:        true,
+	},
+	Type: func(args []cty.Value) (cty.Type, error) {
+		argTypes := make([]cty.Type, len(args))
+		for i, v := range args {
+			argTypes[i] = v.Type()
+		}
+		ty, _ := convert.UnifyUnsafe(argTypes)
+		if ty == cty.NilType {
+			return cty.NilType, errors.New("all arguments must have the same type")
+		}
+		return ty, nil
+	},
+	Impl: func(args []cty.Value, ty cty.Type) (cty.Value, error) {
+		for _, v := range args {
+			v, err := convert.Convert(v, ty)
+			if err != nil {
+				return cty.NilVal, err
+			}
+			if !v.IsKnown() {
+				return cty.UnknownVal(ty), nil
+			}
+			if v.IsNull() || ty == cty.String && v.RawEquals(cty.StringVal("")) {
+				continue
+			}
+			return v, nil
+		}
+		return cty.NilVal, errors.New("no non-null, non-empty-string arguments")
+	},
+})
+
+// indexFunc returns the position of a value. The go-cty function of the same
+// name looks up a key, so it would return an element instead.
+var indexFunc = function.New(&function.Spec{
+	Params: []function.Parameter{
+		{Name: "list", Type: cty.DynamicPseudoType},
+		{Name: "value", Type: cty.DynamicPseudoType},
+	},
+	Type: function.StaticReturnType(cty.Number),
+	Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
+		ty := args[0].Type()
+		if !ty.IsListType() && !ty.IsTupleType() {
+			return cty.NilVal, function.NewArgErrorf(0, "argument must be a list or tuple")
+		}
+		for it := args[0].ElementIterator(); it.Next(); {
+			i, v := it.Element()
+			eq, err := stdlib.Equal(v, args[1])
+			if err != nil {
+				return cty.NilVal, err
+			}
+			if !eq.IsKnown() {
+				return cty.UnknownVal(cty.Number), nil
+			}
+			if eq.True() {
+				return i, nil
+			}
+		}
+		return cty.NilVal, errors.New("item not found")
 	},
 })

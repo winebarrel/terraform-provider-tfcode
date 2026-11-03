@@ -54,7 +54,7 @@ data.tfcode.dns.locals.tags.a # "x"
 data.tfcode.dns.locals.tags.b # Unsupported attribute
 ```
 
-See the [data source documentation](docs/data-sources/tfcode.md) for the details and the list of supported functions.
+See the [data source documentation](docs/data-sources/tfcode.md) for the details, the limitations and the list of supported functions.
 
 ## Development
 

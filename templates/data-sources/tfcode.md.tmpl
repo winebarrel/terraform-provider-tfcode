@@ -30,16 +30,23 @@ stays readable when one of its attributes is left out:
 
 `variable`, `data` and `module` blocks are not exposed, and modules are not
 followed. Meta-arguments such as `count` and `lifecycle` are not part of a
-resource's values. `sensitive = true` on an output is ignored, so the value
-reads as an ordinary one.
+resource's values.
 
 Nested blocks are always lists, as in `ingress[0].from_port`, because the
 provider schema that would tell a single block from a list is not available.
+
+## Limitations
+
+- `sensitive = true` on an output is ignored, so the value is shown unmasked in the plan of the configuration reading it.
+- `.tf.json` files are not read.
+- A directory with an `override.tf` or `*_override.tf` file fails with an error. Terraform merges those files over the other blocks, which this data source does not do, so it refuses rather than return values Terraform would not use.
+- An infinite number, such as the result of `log(0, 2)`, is undetermined because it cannot be written to state.
 
 ## Functions
 
 Terraform's own functions cannot be imported, so a subset is available:
 `abs`, `alltrue`, `anytrue`, `base64decode`, `base64encode`, `can`, `ceil`, `chomp`, `chunklist`, `coalesce`, `coalescelist`, `compact`, `concat`, `contains`, `csvdecode`, `distinct`, `element`, `endswith`, `flatten`, `floor`, `format`, `formatdate`, `formatlist`, `indent`, `index`, `join`, `jsondecode`, `jsonencode`, `keys`, `length`, `log`, `lookup`, `lower`, `max`, `md5`, `merge`, `min`, `nonsensitive`, `one`, `parseint`, `pow`, `range`, `regex`, `regexall`, `replace`, `reverse`, `sensitive`, `setintersection`, `setproduct`, `setsubtract`, `setunion`, `sha1`, `sha256`, `sha512`, `signum`, `slice`, `sort`, `split`, `startswith`, `strcontains`, `strrev`, `substr`, `sum`, `timeadd`, `title`, `tobool`, `tolist`, `tomap`, `tonumber`, `toset`, `tostring`, `trim`, `trimprefix`, `trimspace`, `trimsuffix`, `try`, `upper`, `urlencode`, `values`, `zipmap`.
-An expression calling any other function is undetermined.
+An expression calling any other function is undetermined, and so is `lookup`
+without a default or with a null default.
 
 {{ .SchemaMarkdown | trimspace }}
