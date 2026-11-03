@@ -24,8 +24,7 @@ data "tfcode" "t" {
 
 func TestReadsValues(t *testing.T) {
 	tests := map[string]string{
-		`data.tfcode.t.outputs.env`:                                          "prod",
-		`data.tfcode.t.outputs.secret`:                                       "shown",
+		`data.tfcode.t.locals.env`:                                           "prod",
 		`data.tfcode.t.locals.tags.a`:                                        "x",
 		`data.tfcode.t.locals.ports[1]`:                                      "443",
 		`tostring(data.tfcode.t.locals.nothing == null)`:                     "true",
@@ -52,7 +51,8 @@ func TestReadsValues(t *testing.T) {
 
 func TestUndeterminedReferenceFails(t *testing.T) {
 	for _, expr := range []string{
-		`data.tfcode.t.outputs.undetermined`,
+		`data.tfcode.t.outputs.env`,
+		`data.tfcode.t.locals.undetermined`,
 		`data.tfcode.t.locals.tags.b`,
 		`data.tfcode.t.resource.aws_route53_record.myhost.fqdn`,
 		`data.tfcode.t.resource.aws_route53_zone.main.zone_id`,

@@ -24,10 +24,6 @@ output "zone_id" {
   value = data.tfcode.dns.resource.aws_route53_record.myhost.zone_id
 }
 
-output "ttl" {
-  value = data.tfcode.dns.outputs.ttl
-}
-
 output "domain" {
   value = data.tfcode.dns.locals.domain
 }

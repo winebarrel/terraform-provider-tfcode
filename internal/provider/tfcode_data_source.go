@@ -27,7 +27,6 @@ func NewTfcodeDataSource() datasource.DataSource {
 
 type tfcodeModel struct {
 	Source   types.String  `tfsdk:"source"`
-	Outputs  types.Dynamic `tfsdk:"outputs"`
 	Resource types.Dynamic `tfsdk:"resource"`
 	Locals   types.Dynamic `tfsdk:"locals"`
 }
@@ -43,10 +42,6 @@ func (d *TfcodeDataSource) Schema(_ context.Context, _ datasource.SchemaRequest,
 			"source": schema.StringAttribute{
 				MarkdownDescription: "Relative path of the directory to read. It is resolved against the directory Terraform runs in, so inside a module write `\"${path.module}/../foo\"`.",
 				Required:            true,
-			},
-			"outputs": schema.DynamicAttribute{
-				MarkdownDescription: "The `output` values, as `outputs.<name>`.",
-				Computed:            true,
 			},
 			"resource": schema.DynamicAttribute{
 				MarkdownDescription: "The arguments set on `resource` blocks, as `resource.<type>.<name>.<argument>`. Nested blocks are always lists.",
@@ -79,7 +74,6 @@ func (d *TfcodeDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 		return
 	}
 
-	data.Outputs = dynamicOf(ctx, values.Outputs, &resp.Diagnostics)
 	data.Resource = dynamicOf(ctx, values.Resource, &resp.Diagnostics)
 	data.Locals = dynamicOf(ctx, values.Locals, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {

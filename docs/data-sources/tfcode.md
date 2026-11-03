@@ -19,7 +19,7 @@ resource "aws_route53_record" "www" {
   zone_id = data.tfcode.dns.resource.aws_route53_record.myhost.zone_id
   name    = "www.${data.tfcode.dns.locals.domain}"
   type    = "CNAME"
-  ttl     = data.tfcode.dns.outputs.ttl
+  ttl     = data.tfcode.dns.locals.ttl
   records = ["example.com"]
 }
 ```
@@ -40,8 +40,9 @@ stays readable when one of its attributes is left out:
 - Impure functions such as `timestamp()` and `uuid()`, and functions not listed below.
 - A list with an undetermined element. The whole list is left out, so that the remaining indexes cannot shift.
 
-`variable`, `data` and `module` blocks are not exposed, and modules are not
-followed. Meta-arguments such as `count` and `lifecycle` are not part of a
+`output`, `variable`, `data` and `module` blocks are not exposed, and modules are
+not followed. Most outputs pass on values a provider computes, which could not be
+read anyway, and most of the rest can be read through `locals` and `resource`. Meta-arguments such as `count` and `lifecycle` are not part of a
 resource's values.
 
 Nested blocks are always lists, as in `ingress[0].from_port`, because the
@@ -49,7 +50,6 @@ provider schema that would tell a single block from a list is not available.
 
 ## Limitations
 
-- `sensitive = true` on an output is ignored, so the value is shown unmasked in the plan of the configuration reading it.
 - `.tf.json` files are not read.
 - A directory with an `override.tf` or `*_override.tf` file fails with an error. Terraform merges those files over the other blocks, which this data source does not do, so it refuses rather than return values Terraform would not use.
 - An infinite number, such as the result of `log(0, 2)`, is undetermined because it cannot be written to state.
@@ -71,5 +71,4 @@ without a default or with a null default.
 ### Read-Only
 
 - `locals` (Dynamic) The `locals` values, as `locals.<name>`.
-- `outputs` (Dynamic) The `output` values, as `outputs.<name>`.
 - `resource` (Dynamic) The arguments set on `resource` blocks, as `resource.<type>.<name>.<argument>`. Nested blocks are always lists.
