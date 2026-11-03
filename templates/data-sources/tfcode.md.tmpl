@@ -1,0 +1,45 @@
+---
+page_title: "tfcode Data Source"
+description: |-
+  {{ .Description | plainmarkdown | trimspace }}
+---
+
+# tfcode (Data Source)
+
+{{ .Description | trimspace }}
+
+## Example Usage
+
+{{ tffile "examples/data-sources/tfcode/data-source.tf" }}
+
+## What can be read
+
+An expression is evaluated when its value follows from the source alone. That
+covers literals, `local` references, functions, references to arguments written
+on other resources, `count`, `for_each` and `dynamic` blocks.
+
+Anything else is left out, so referring to it fails with `Unsupported
+attribute`. Values you do not refer to cause no error, and the rest of an object
+stays readable when one of its attributes is left out:
+
+- Expressions using `var`, `data`, `module`, `path`, `terraform` or `self`, even when a variable has a default.
+- Attributes the source does not set, such as a provider-computed `id`.
+- A reference to a whole resource, as opposed to one of its arguments.
+- Impure functions such as `timestamp()` and `uuid()`, and functions not listed below.
+- A list with an undetermined element. The whole list is left out, so that the remaining indexes cannot shift.
+
+`variable`, `data` and `module` blocks are not exposed, and modules are not
+followed. Meta-arguments such as `count` and `lifecycle` are not part of a
+resource's values. `sensitive = true` on an output is ignored, so the value
+reads as an ordinary one.
+
+Nested blocks are always lists, as in `ingress[0].from_port`, because the
+provider schema that would tell a single block from a list is not available.
+
+## Functions
+
+Terraform's own functions cannot be imported, so a subset is available:
+`abs`, `alltrue`, `anytrue`, `base64decode`, `base64encode`, `can`, `ceil`, `chomp`, `chunklist`, `coalesce`, `coalescelist`, `compact`, `concat`, `contains`, `csvdecode`, `distinct`, `element`, `endswith`, `flatten`, `floor`, `format`, `formatdate`, `formatlist`, `indent`, `index`, `join`, `jsondecode`, `jsonencode`, `keys`, `length`, `log`, `lookup`, `lower`, `max`, `md5`, `merge`, `min`, `nonsensitive`, `one`, `parseint`, `pow`, `range`, `regex`, `regexall`, `replace`, `reverse`, `sensitive`, `setintersection`, `setproduct`, `setsubtract`, `setunion`, `sha1`, `sha256`, `sha512`, `signum`, `slice`, `sort`, `split`, `startswith`, `strcontains`, `strrev`, `substr`, `sum`, `timeadd`, `title`, `tobool`, `tolist`, `tomap`, `tonumber`, `toset`, `tostring`, `trim`, `trimprefix`, `trimspace`, `trimsuffix`, `try`, `upper`, `urlencode`, `values`, `zipmap`.
+An expression calling any other function is undetermined.
+
+{{ .SchemaMarkdown | trimspace }}

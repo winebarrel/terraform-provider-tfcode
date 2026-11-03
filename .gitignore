@@ -31,3 +31,11 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Local development
+/terraform-provider-tfcode
+/dev.tfrc
+/tfcode.tf
+terraform.tfstate*
+.terraform/
+.terraform.lock.hcl
