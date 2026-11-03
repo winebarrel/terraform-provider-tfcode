@@ -82,13 +82,30 @@ func TestUndeterminedValuesAreLeftOut(t *testing.T) {
 		"try on unset":         `try(aws_route53_zone.main.zone_id, "d")`,
 		"sequence with var":    `[1, var.x]`,
 		"through a local":      `local.undetermined`,
+		"bare local":           `local`,
+		"indexed local":        `local["undetermined"]`,
+		"undeclared local":     `local.nope`,
+		"bare resource type":   `aws_route53_zone`,
+		"indexed resource":     `aws_route53_zone["main"].name`,
+		"past an unset value":  `aws_route53_zone.main.comment.text`,
+		"undetermined count":   `aws_route53_record.unknown[0].name`,
+		"key from a variable":  `{ (local.undetermined) = 1 }`,
+		"null key":             `{ (null) = 1 }`,
+		"set with a variable":  `toset([local.undetermined, "b"])`,
 	}
 	for name, expr := range tests {
 		t.Run(name, func(t *testing.T) {
 			v := read(t, `
 variable "x" { default = "not used" }
 locals { undetermined = var.x }
-resource "aws_route53_zone" "main" { name = "example.com" }
+resource "aws_route53_zone" "main" {
+  name    = "example.com"
+  comment = var.x
+}
+resource "aws_route53_record" "unknown" {
+  count = var.x
+  name  = "x"
+}
 output "o" { value = `+expr+` }
 `)
 			assert.NotContains(t, attrs(v.Outputs), "o")
@@ -223,6 +240,24 @@ func TestFunctions(t *testing.T) {
 		`alltrue([null, true])`:         cty.False,
 		`length({ a = 1 })`:             cty.NumberIntVal(1),
 		`sum([])`:                       cty.NilVal,
+		`sha1("a")`:                     cty.StringVal("86f7e437faa5a7fce15d1ddcb9eaeaea377667b8"),
+		`sha256("a")`:                   cty.StringVal("ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb"),
+		`sha512("a")`:                   cty.StringVal("1f40fc92da241694750979ee6cf582f2d5d7d28e18335de05abc54d0560e0f5302860c652bf08d560252aa5e74210546f369fbbbce8c12cfc7957b2652fe9a75"),
+		`base64decode("!")`:             cty.NilVal,
+		`one([])`:                       cty.NullVal(cty.DynamicPseudoType),
+		`one(["a", "b"])`:               cty.NilVal,
+		`one(1)`:                        cty.NilVal,
+		`sum([1, null])`:                cty.NilVal,
+		`alltrue([local.u, false])`:     cty.False,
+		`alltrue([local.u, true])`:      cty.NilVal,
+		`alltrue([])`:                   cty.True,
+		`anytrue([local.u, true])`:      cty.True,
+		`anytrue([local.u, false])`:     cty.NilVal,
+		`anytrue([])`:                   cty.False,
+		`coalesce(local.u, "b")`:        cty.NilVal,
+		`coalesce(["a"], "b")`:          cty.NilVal,
+		`index({ a = 1 }, "a")`:         cty.NilVal,
+		`index([local.u], "a")`:         cty.NilVal,
 		`coalesce("", "b")`:             cty.StringVal("b"),
 		`coalesce(null, 1)`:             cty.NumberIntVal(1),
 		`coalesce("", "")`:              cty.NilVal,
@@ -250,7 +285,10 @@ func TestFunctions(t *testing.T) {
 	}
 	for expr, want := range tests {
 		t.Run(expr, func(t *testing.T) {
-			v := read(t, `output "o" { value = `+expr+` }`)
+			v := read(t, `
+locals { u = var.x }
+output "o" { value = `+expr+` }
+`)
 			got, ok := attrs(v.Outputs)["o"]
 			if want == cty.NilVal {
 				assert.False(t, ok)
@@ -306,6 +344,118 @@ func TestErrors(t *testing.T) {
 	for _, name := range []string{"override.tf", "dev_override.tf"} {
 		_, err = tfcode.Read(write(t, map[string]string{"main.tf": `locals { a = 1 }`, name: `locals { a = 2 }`}))
 		assert.ErrorContains(t, err, "override files are not supported")
+	}
+}
+
+func TestParentheses(t *testing.T) {
+	v := read(t, `output "o" { value = ({ a = "x", b = var.y }) }`)
+	o := attrs(v.Outputs)["o"]
+	assert.Equal(t, cty.StringVal("x"), o.GetAttr("a"))
+	assert.False(t, o.Type().HasAttribute("b"))
+}
+
+func TestOutputWithoutValue(t *testing.T) {
+	v := read(t, `output "o" {}`)
+	assert.NotContains(t, attrs(v.Outputs), "o")
+}
+
+func TestInvalidCount(t *testing.T) {
+	for _, count := range []string{`-1`, `1.5`, `"x"`, `null`} {
+		t.Run(count, func(t *testing.T) {
+			v := read(t, `resource "x" "a" { count = `+count+` }`)
+			assert.False(t, v.Resource.GetAttr("x").Type().HasAttribute("a"))
+		})
+	}
+}
+
+func TestInvalidDynamicBlocks(t *testing.T) {
+	tests := map[string]string{
+		"no for_each": `dynamic "b" {
+      content {}
+    }`,
+		"no content": `dynamic "b" {
+      for_each = [1]
+    }`,
+		"iterator is not a name": `dynamic "b" {
+      for_each = [1]
+      iterator = "x"
+      content {}
+    }`,
+	}
+	for name, block := range tests {
+		t.Run(name, func(t *testing.T) {
+			v := read(t, `
+resource "x" "a" {
+  name = "kept"
+  `+block+`
+}
+`)
+			a := v.Resource.GetAttr("x").GetAttr("a")
+			assert.Equal(t, cty.StringVal("kept"), a.GetAttr("name"))
+			assert.False(t, a.Type().HasAttribute("b"))
+		})
+	}
+}
+
+// Terraform rejects a block missing its labels. It is not this data source's
+// job to report that, but it must not get in the way of reading the rest.
+func TestBlocksWithoutLabels(t *testing.T) {
+	v := read(t, `
+output {
+  value = 1
+}
+resource "only_type" {}
+output "o" {
+  value = 2
+}
+`)
+	assert.Len(t, attrs(v.Outputs), 1)
+	assert.True(t, v.Resource.RawEquals(cty.EmptyObjectVal))
+}
+
+// A cycle is an error wherever the reference is written.
+func TestCircularReferences(t *testing.T) {
+	tests := map[string]string{
+		"output":       `output "o" { value = local.a }` + "\n" + `locals { a = local.a }`,
+		"tuple":        `locals { a = [local.a] }`,
+		"object value": `locals { a = { k = local.a } }`,
+		"object key":   `locals { a = { (local.a) = 1 } }`,
+		"count":        `resource "x" "a" { count = x.a[0].n }`,
+		"count body": `resource "x" "a" {
+  count = 1
+  n     = x.a[0].n
+}`,
+		"for_each": `resource "x" "a" { for_each = x.a.n }`,
+		"for_each body": `resource "x" "a" {
+  for_each = toset(["k"])
+  n        = x.a["k"].n
+}`,
+		"nested block": `resource "x" "a" {
+  b {
+    n = x.a.n
+  }
+}`,
+		"block attribute": `resource "x" "a" { n = x.a.n }`,
+		"dynamic for_each": `resource "x" "a" {
+  dynamic "b" {
+    for_each = x.a.n
+    content {}
+  }
+}`,
+		"dynamic content": `resource "x" "a" {
+  dynamic "b" {
+    for_each = [1]
+    content {
+      n = x.a.n
+    }
+  }
+}`,
+	}
+	for name, src := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, err := tfcode.Read(write(t, map[string]string{"main.tf": src}))
+			assert.ErrorContains(t, err, "circular reference")
+		})
 	}
 }
 

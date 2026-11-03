@@ -86,3 +86,48 @@ func TestInvalidSource(t *testing.T) {
 		})
 	}
 }
+
+// The values cross the provider boundary with their types, so a null or a
+// collection inside another one has to survive the conversion.
+func TestTypedValues(t *testing.T) {
+	tests := map[string]string{
+		"list":             `["a"]`,
+		"map":              `{"a":"x"}`,
+		"set":              `["a"]`,
+		"empty":            `[]`,
+		"list_of_lists":    `[[1]]`,
+		"list_of_sets":     `[["a"]]`,
+		"list_of_maps":     `[{"a":true}]`,
+		"list_of_objects":  `[{"a":1}]`,
+		"null_string":      `null`,
+		"null_number":      `null`,
+		"null_bool":        `null`,
+		"with_null_string": `["a",null]`,
+		"with_null_number": `[1,null]`,
+		"with_null_bool":   `[true,null]`,
+		"with_null_list":   `[["a"],null]`,
+		"with_null_set":    `[["a"],null]`,
+		"with_null_map":    `[{"a":"x"},null]`,
+		"with_null_object": `{"a":{"b":1},"c":null}`,
+		"with_null_tuple":  `{"a":["x",1],"c":null}`,
+	}
+
+	config := `
+data "tfcode" "t" {
+  source = "testdata/values"
+}
+`
+	var checks []resource.TestCheckFunc
+	for name, want := range tests {
+		config += `output "` + name + `" { value = jsonencode(data.tfcode.t.locals.` + name + `) }` + "\n"
+		checks = append(checks, resource.TestCheckOutput(name, want))
+	}
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: factories,
+		Steps: []resource.TestStep{{
+			Config: config,
+			Check:  resource.ComposeAggregateTestCheckFunc(checks...),
+		}},
+	})
+}
