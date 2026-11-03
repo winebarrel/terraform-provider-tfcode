@@ -1,0 +1,52 @@
+---
+page_title: "tfcode Data Source"
+description: |-
+  {{ .Description | plainmarkdown | trimspace }}
+---
+
+# tfcode (Data Source)
+
+{{ .Description | trimspace }}
+
+## Example Usage
+
+{{ tffile "examples/data-sources/tfcode/data-source.tf" }}
+
+## What can be read
+
+An expression is evaluated when its value follows from the source alone. That
+covers literals, `local` references, functions, references to arguments written
+on other resources, `count`, `for_each` and `dynamic` blocks.
+
+Anything else is left out, so referring to it fails with `Unsupported
+attribute`. Values you do not refer to cause no error, and the rest of an object
+stays readable when one of its attributes is left out:
+
+- Expressions using `var`, `data`, `module`, `path`, `terraform` or `self`, even when a variable has a default.
+- Attributes the source does not set, such as a provider-computed `id`.
+- A reference to a whole resource, as opposed to one of its arguments.
+- Impure functions such as `timestamp()` and `uuid()`, and functions not listed below.
+- A list with an undetermined element. The whole list is left out, so that the remaining indexes cannot shift.
+
+`variable`, `data` and `module` blocks are not exposed, and modules are not
+followed. Meta-arguments such as `count` and `lifecycle` are not part of a
+resource's values.
+
+Nested blocks are always lists, as in `ingress[0].from_port`, because the
+provider schema that would tell a single block from a list is not available.
+
+## Limitations
+
+- `sensitive = true` on an output is ignored, so the value is shown unmasked in the plan of the configuration reading it.
+- `.tf.json` files are not read.
+- A directory with an `override.tf` or `*_override.tf` file fails with an error. Terraform merges those files over the other blocks, which this data source does not do, so it refuses rather than return values Terraform would not use.
+- An infinite number, such as the result of `log(0, 2)`, is undetermined because it cannot be written to state.
+
+## Functions
+
+Terraform's own functions cannot be imported, so a subset is available:
+`abs`, `alltrue`, `anytrue`, `base64decode`, `base64encode`, `can`, `ceil`, `chomp`, `chunklist`, `coalesce`, `coalescelist`, `compact`, `concat`, `contains`, `csvdecode`, `distinct`, `element`, `endswith`, `flatten`, `floor`, `format`, `formatdate`, `formatlist`, `indent`, `index`, `join`, `jsondecode`, `jsonencode`, `keys`, `length`, `log`, `lookup`, `lower`, `max`, `md5`, `merge`, `min`, `nonsensitive`, `one`, `parseint`, `pow`, `range`, `regex`, `regexall`, `replace`, `reverse`, `sensitive`, `setintersection`, `setproduct`, `setsubtract`, `setunion`, `sha1`, `sha256`, `sha512`, `signum`, `slice`, `sort`, `split`, `startswith`, `strcontains`, `strrev`, `substr`, `sum`, `timeadd`, `title`, `tobool`, `tolist`, `tomap`, `tonumber`, `toset`, `tostring`, `trim`, `trimprefix`, `trimspace`, `trimsuffix`, `try`, `upper`, `urlencode`, `values`, `zipmap`.
+An expression calling any other function is undetermined, and so is `lookup`
+without a default or with a null default.
+
+{{ .SchemaMarkdown | trimspace }}

@@ -1,0 +1,23 @@
+---
+page_title: "tfcode Provider"
+description: |-
+  Reads static values from the Terraform configuration in another directory.
+---
+
+# tfcode Provider
+
+Reads values from the source of another Terraform configuration, with an
+interface like `terraform_remote_state`. It never reads a state file, so it
+only sees what the `.tf` files themselves fix.
+
+## Example Usage
+
+```terraform
+terraform {
+  required_providers {
+    tfcode = {
+      source = "winebarrel/tfcode"
+    }
+  }
+}
+```

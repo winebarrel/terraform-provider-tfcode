@@ -1,0 +1,23 @@
+terraform {
+  required_providers {
+    tfcode = {
+      source = "winebarrel/tfcode"
+    }
+  }
+}
+
+data "tfcode" "example" {
+  source = "internal/provider/testdata/target"
+}
+
+output "env" {
+  value = data.tfcode.example.outputs.env
+}
+
+output "zone_name" {
+  value = data.tfcode.example.resource.aws_route53_zone.main.name
+}
+
+output "second_port" {
+  value = data.tfcode.example.locals.ports[1]
+}
