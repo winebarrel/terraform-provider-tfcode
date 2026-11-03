@@ -1,6 +1,7 @@
 # terraform-provider-tfcode
 
 [![CI](https://github.com/winebarrel/terraform-provider-tfcode/actions/workflows/ci.yml/badge.svg)](https://github.com/winebarrel/terraform-provider-tfcode/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/winebarrel/terraform-provider-tfcode/graph/badge.svg?token=hmmUSarOJW)](https://codecov.io/gh/winebarrel/terraform-provider-tfcode)
 [![AI Generated](https://img.shields.io/badge/AI%20Generated-Claude-orange?logo=anthropic)](https://claude.com/claude-code)
 
 A Terraform data source that reads static values from the `.tf` files of another directory, with an interface like `terraform_remote_state`. It never reads a state file.
