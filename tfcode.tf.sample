@@ -11,7 +11,7 @@ data "tfcode" "example" {
 }
 
 output "env" {
-  value = data.tfcode.example.outputs.env
+  value = data.tfcode.example.locals.env
 }
 
 output "zone_name" {

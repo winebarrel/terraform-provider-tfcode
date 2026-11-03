@@ -1,6 +1,6 @@
 // Package tfcode reads the values a Terraform configuration fixes in its own
-// source: outputs, locals and resource arguments that can be computed without
-// a state file, variables or child modules.
+// source: locals and resource arguments that can be computed without a state
+// file, variables or child modules.
 //
 // A value that cannot be computed is held as a cty unknown while evaluating,
 // which is what makes the result trustworthy: try(), keys(), merge() and
@@ -25,7 +25,6 @@ import (
 
 // Values holds what Read found. Each field is an object.
 type Values struct {
-	Outputs  cty.Value
 	Resource cty.Value
 	Locals   cty.Value
 }
@@ -40,9 +39,6 @@ func Read(dir string) (*Values, error) {
 	}
 
 	v := &Values{}
-	if v.Outputs, err = e.outputValues(); err != nil {
-		return nil, err
-	}
 	if v.Resource, err = e.resourceValues(); err != nil {
 		return nil, err
 	}
@@ -54,7 +50,6 @@ func Read(dir string) (*Values, error) {
 
 type evaluator struct {
 	base      *hcl.EvalContext
-	outputs   map[string]hcl.Expression
 	locals    map[string]hcl.Expression
 	resources map[string]map[string]*hclsyntax.Body
 	memo      map[string]cty.Value
@@ -70,7 +65,6 @@ func load(dir string) (*evaluator, error) {
 
 	e := &evaluator{
 		base:      &hcl.EvalContext{Functions: functions()},
-		outputs:   map[string]hcl.Expression{},
 		locals:    map[string]hcl.Expression{},
 		resources: map[string]map[string]*hclsyntax.Body{},
 		memo:      map[string]cty.Value{},
@@ -117,19 +111,6 @@ func load(dir string) (*evaluator, error) {
 func (e *evaluator) collect(body *hclsyntax.Body, path string) error {
 	for _, block := range body.Blocks {
 		switch block.Type {
-		case "output":
-			if len(block.Labels) != 1 {
-				continue
-			}
-			name := block.Labels[0]
-			if _, dup := e.outputs[name]; dup {
-				return fmt.Errorf("duplicate output %q in %s", name, path)
-			}
-			if attr, ok := block.Body.Attributes["value"]; ok {
-				e.outputs[name] = attr.Expr
-			} else {
-				e.outputs[name] = nil
-			}
 		case "locals":
 			for name, attr := range block.Body.Attributes {
 				if _, dup := e.locals[name]; dup {
@@ -152,21 +133,6 @@ func (e *evaluator) collect(body *hclsyntax.Body, path string) error {
 		}
 	}
 	return nil
-}
-
-func (e *evaluator) outputValues() (cty.Value, error) {
-	vals := map[string]cty.Value{}
-	for name, expr := range e.outputs {
-		v := cty.DynamicVal
-		if expr != nil {
-			var err error
-			if v, err = e.eval(expr, e.base); err != nil {
-				return cty.NilVal, err
-			}
-		}
-		vals[name] = v
-	}
-	return exportObject(vals), nil
 }
 
 func (e *evaluator) localValues() (cty.Value, error) {

@@ -33,14 +33,14 @@ func attrs(v cty.Value) map[string]cty.Value {
 
 func TestLiteralValues(t *testing.T) {
 	v := read(t, `
-output "name" { value = "foo" }
+locals { name = "foo" }
 locals { port = 80 }
 resource "aws_route53_record" "myhost" {
   zone_id = "Z123"
   ttl     = 300
 }
 `)
-	assert.Equal(t, cty.StringVal("foo"), attrs(v.Outputs)["name"])
+	assert.Equal(t, cty.StringVal("foo"), attrs(v.Locals)["name"])
 	assert.True(t, attrs(v.Locals)["port"].RawEquals(cty.NumberIntVal(80)))
 
 	record := v.Resource.GetAttr("aws_route53_record").GetAttr("myhost")
@@ -56,9 +56,9 @@ locals {
 }
 resource "aws_route53_zone" "main" { name = "example.com" }
 resource "aws_route53_record" "myhost" { name = aws_route53_zone.main.name }
-output "name" { value = upper(local.name) }
+locals { upper_name = upper(local.name) }
 `)
-	assert.Equal(t, cty.StringVal("PROD-WEB"), attrs(v.Outputs)["name"])
+	assert.Equal(t, cty.StringVal("PROD-WEB"), attrs(v.Locals)["upper_name"])
 	assert.True(t, attrs(v.Locals)["tags"].GetAttr("b").RawEquals(cty.NumberIntVal(2)))
 	assert.Equal(t, cty.StringVal("example.com"),
 		v.Resource.GetAttr("aws_route53_record").GetAttr("myhost").GetAttr("name"))
@@ -106,9 +106,9 @@ resource "aws_route53_record" "unknown" {
   count = var.x
   name  = "x"
 }
-output "o" { value = `+expr+` }
+locals { o = `+expr+` }
 `)
-			assert.NotContains(t, attrs(v.Outputs), "o")
+			assert.NotContains(t, attrs(v.Locals), "o")
 		})
 	}
 }
@@ -169,15 +169,15 @@ resource "aws_route53_record" "unknown" {
   count = var.n
   name  = "x"
 }
-output "second" { value = aws_route53_record.a[1].name }
-output "whole" { value = aws_route53_record.a[1] }
+locals { second = aws_route53_record.a[1].name }
+locals { whole = aws_route53_record.a[1] }
 `)
 	records := v.Resource.GetAttr("aws_route53_record")
 	assert.Equal(t, cty.StringVal("host-0"), records.GetAttr("a").AsValueSlice()[0].GetAttr("name"))
 	assert.False(t, records.GetAttr("a").AsValueSlice()[0].Type().HasAttribute("count"))
 	assert.False(t, records.Type().HasAttribute("unknown"))
-	assert.Equal(t, cty.StringVal("host-1"), attrs(v.Outputs)["second"])
-	assert.NotContains(t, attrs(v.Outputs), "whole")
+	assert.Equal(t, cty.StringVal("host-1"), attrs(v.Locals)["second"])
+	assert.NotContains(t, attrs(v.Locals), "whole")
 }
 
 func TestForEach(t *testing.T) {
@@ -191,13 +191,13 @@ resource "aws_route53_record" "map" {
   name     = each.key
   ttl      = each.value
 }
-output "o" { value = aws_route53_record.set["y"].name }
+locals { o = aws_route53_record.set["y"].name }
 `)
 	records := v.Resource.GetAttr("aws_route53_record")
 	assert.Equal(t, cty.StringVal("x"), records.GetAttr("set").GetAttr("x").GetAttr("name"))
 	assert.Equal(t, cty.StringVal("one"), records.GetAttr("map").GetAttr("x").GetAttr("ttl"))
 	assert.False(t, records.GetAttr("map").GetAttr("y").Type().HasAttribute("ttl"))
-	assert.Equal(t, cty.StringVal("y"), attrs(v.Outputs)["o"])
+	assert.Equal(t, cty.StringVal("y"), attrs(v.Locals)["o"])
 }
 
 func TestBlocks(t *testing.T) {
@@ -287,9 +287,9 @@ func TestFunctions(t *testing.T) {
 		t.Run(expr, func(t *testing.T) {
 			v := read(t, `
 locals { u = var.x }
-output "o" { value = `+expr+` }
+locals { o = `+expr+` }
 `)
-			got, ok := attrs(v.Outputs)["o"]
+			got, ok := attrs(v.Locals)["o"]
 			if want == cty.NilVal {
 				assert.False(t, ok)
 				return
@@ -302,25 +302,24 @@ output "o" { value = `+expr+` }
 
 func TestFiles(t *testing.T) {
 	dir := write(t, map[string]string{
-		"a.tf":      `output "a" { value = local.b }`,
+		"a.tf":      `locals { a = local.b }`,
 		"b.tf":      `locals { b = "from b" }`,
 		".draft.tf": `this does not parse`,
 		"ignore.md": `this does not parse`,
 	})
 	require.NoError(t, os.Mkdir(filepath.Join(dir, "sub"), 0o700))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "sub", "c.tf"), []byte(`output "c" { value = 1 }`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "sub", "c.tf"), []byte(`locals { c = 1 }`), 0o600))
 
 	v, err := tfcode.Read(dir)
 	require.NoError(t, err)
-	assert.Equal(t, cty.StringVal("from b"), attrs(v.Outputs)["a"])
-	assert.NotContains(t, attrs(v.Outputs), "c")
+	assert.Equal(t, cty.StringVal("from b"), attrs(v.Locals)["a"])
+	assert.NotContains(t, attrs(v.Locals), "c")
 }
 
 func TestErrors(t *testing.T) {
 	tests := map[string]struct{ src, want string }{
-		"syntax":           {`output {`, "main.tf"},
-		"duplicate local":  {"locals { a = 1 }\nlocals { a = 2 }", `duplicate local "a"`},
-		"duplicate output": {"output \"a\" { value = 1 }\noutput \"a\" { value = 2 }", `duplicate output "a"`},
+		"syntax":          {`locals {`, "main.tf"},
+		"duplicate local": {"locals { a = 1 }\nlocals { a = 2 }", `duplicate local "a"`},
 		"duplicate resource": {
 			"resource \"x\" \"a\" {}\nresource \"x\" \"a\" {}",
 			"duplicate resource x.a",
@@ -347,16 +346,26 @@ func TestErrors(t *testing.T) {
 	}
 }
 
-func TestParentheses(t *testing.T) {
-	v := read(t, `output "o" { value = ({ a = "x", b = var.y }) }`)
-	o := attrs(v.Outputs)["o"]
-	assert.Equal(t, cty.StringVal("x"), o.GetAttr("a"))
-	assert.False(t, o.Type().HasAttribute("b"))
+func TestOutputsAreNotRead(t *testing.T) {
+	v := read(t, `
+output "a" {
+  value = 1
+}
+output "a" {
+  value = local.nope
+}
+locals {
+  kept = "x"
+}
+`)
+	assert.Equal(t, cty.StringVal("x"), attrs(v.Locals)["kept"])
 }
 
-func TestOutputWithoutValue(t *testing.T) {
-	v := read(t, `output "o" {}`)
-	assert.NotContains(t, attrs(v.Outputs), "o")
+func TestParentheses(t *testing.T) {
+	v := read(t, `locals { o = ({ a = "x", b = var.y }) }`)
+	o := attrs(v.Locals)["o"]
+	assert.Equal(t, cty.StringVal("x"), o.GetAttr("a"))
+	assert.False(t, o.Type().HasAttribute("b"))
 }
 
 func TestInvalidCount(t *testing.T) {
@@ -401,22 +410,18 @@ resource "x" "a" {
 // job to report that, but it must not get in the way of reading the rest.
 func TestBlocksWithoutLabels(t *testing.T) {
 	v := read(t, `
-output {
-  value = 1
-}
 resource "only_type" {}
-output "o" {
-  value = 2
+locals {
+  o = 2
 }
 `)
-	assert.Len(t, attrs(v.Outputs), 1)
+	assert.Len(t, attrs(v.Locals), 1)
 	assert.True(t, v.Resource.RawEquals(cty.EmptyObjectVal))
 }
 
 // A cycle is an error wherever the reference is written.
 func TestCircularReferences(t *testing.T) {
 	tests := map[string]string{
-		"output":       `output "o" { value = local.a }` + "\n" + `locals { a = local.a }`,
 		"tuple":        `locals { a = [local.a] }`,
 		"object value": `locals { a = { k = local.a } }`,
 		"object key":   `locals { a = { (local.a) = 1 } }`,

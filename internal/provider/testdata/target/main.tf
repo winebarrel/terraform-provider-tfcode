@@ -9,6 +9,8 @@ locals {
   nothing = null
   ports   = [80, 443]
   names   = toset(["a", "b"])
+
+  undetermined = var.y
 }
 
 resource "aws_route53_zone" "main" {
@@ -39,13 +41,4 @@ resource "aws_security_group" "web" {
 
 output "env" {
   value = local.env
-}
-
-output "secret" {
-  value     = "shown"
-  sensitive = true
-}
-
-output "undetermined" {
-  value = var.y
 }
