@@ -1,6 +1,7 @@
 # terraform-provider-tfcode
 
 [![CI](https://github.com/winebarrel/terraform-provider-tfcode/actions/workflows/ci.yml/badge.svg)](https://github.com/winebarrel/terraform-provider-tfcode/actions/workflows/ci.yml)
+[![terraform docs](https://img.shields.io/badge/terraform-docs-%35835CC?logo=terraform)](https://registry.terraform.io/providers/winebarrel/tfcode/latest/docs)
 [![codecov](https://codecov.io/gh/winebarrel/terraform-provider-tfcode/graph/badge.svg?token=hmmUSarOJW)](https://codecov.io/gh/winebarrel/terraform-provider-tfcode)
 [![AI Generated](https://img.shields.io/badge/AI%20Generated-Claude-orange?logo=anthropic)](https://claude.com/claude-code)
 
